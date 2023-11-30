@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# The name of the file that contains the commit log message
+COMMIT_MSG_FILE=$1
+# The source of the commit message, one of:
+# - message: if a -m or -F option was given
+# - template: if a -t option was given or the configuration option commit.template is set
+# - merge: if the commit is a merge or a .git/MERGE_MSG file exists
+# - squash: if a .git/SQUASH_MSG file exists
+# - commit: if a -c, -C or --amend option was given
+# or the empty string if none of the above is given.
+COMMIT_SOURCE=$2
+
+./commitgpt "$COMMIT_MSG_FILE" "$COMMIT_SOURCE"

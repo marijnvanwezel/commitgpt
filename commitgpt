@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+
+import openai
+import os.path
+import subprocess
+import sys
+
+import tiktoken
+
+PROMPT_TEMPLATE = f"""
+Create a Git commit message for the `git diff` output at the end of this prompt. Try to limit 
+the commit message length to around 72 characters. Use simple present tense, e.g. "Update 
+README.md" NOT "Updated README.md". Never end the commit message with a period, this is very 
+important. The commit message should consist of a single sentence, which does not end in a 
+period, but may contain comma's. Do not add any quotation marks around the message.
+"""
+
+
+def get_full_diff() -> str:
+    return subprocess.check_output(["git", "diff", "--cached", "--no-color"]).decode('utf-8')
+
+
+def truncate_tokens(string: str, encoding_name: str, max_length: int = 8192) -> str:
+    """Truncates a text string based on max number of tokens."""
+    encoding = tiktoken.encoding_for_model(encoding_name)
+    encoded_string = encoding.encode(string)
+    num_tokens = len(encoded_string)
+
+    if num_tokens > max_length:
+        string = encoding.decode(encoded_string[:max_length])
+
+    return string
+
+
+def generate_commit_msg(client: openai.OpenAI) -> str:
+    short_diff = truncate_tokens(get_full_diff(), encoding_name='gpt-4', max_length=3072)
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": PROMPT_TEMPLATE + "\n\n" + short_diff}]
+            }
+        ],
+        max_tokens=4096
+    )
+
+    return response.choices[0].message.content
+
+
+def main(argv: list[str]):
+    if len(argv) < 2:
+        print("commitgpt: missing commit message filepath")
+        sys.exit(1)
+
+    commit_msg_file = argv[1]
+    try:
+        commit_msg_type = argv[2]
+    except IndexError:
+        commit_msg_type = ''
+
+    if commit_msg_type != '':
+        # a message is (probably) already present
+        return
+
+    if not os.path.exists(commit_msg_file):
+        print(f"commitgpt: {commit_msg_file} not found")
+        sys.exit(1)
+
+    if not os.access(commit_msg_file, os.R_OK):
+        print(f"commitgpt: {commit_msg_file} is not readable")
+        sys.exit(1)
+
+    if not os.access(commit_msg_file, os.W_OK):
+        print(f"commitgpt: {commit_msg_file} is not writable")
+        sys.exit(1)
+
+    with open(commit_msg_file, "r") as file:
+        previous_commit_msg = file.read()
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    client = openai.OpenAI(api_key=api_key)
+
+    new_commit_msg = generate_commit_msg(client) + previous_commit_msg
+
+    with open(commit_msg_file, "w") as file:
+        file.write(new_commit_msg)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
